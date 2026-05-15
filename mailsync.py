@@ -727,6 +727,8 @@ class App(tk.Tk):
         self._append_log(self.conn_log, f"Profil \"{name}\" supprimé.", "warn")
 
     def _update_dynamic_labels(self):
+        if not hasattr(self, "lbl_subtitle"):
+            return
         src_host  = self.src_host.get().strip()
         dst_host  = self.dst_host.get().strip()
         src_label = src_host if src_host else "Source"

@@ -97,6 +97,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - name: Récupérer les artifacts Mac
         uses: actions/download-artifact@v4
         with:
@@ -115,15 +117,18 @@ jobs:
           name: MailSync-Linux
           path: release/linux
 
-      - name: Générer un tag de version
+      - name: Lire la version depuis mailsync.py
         id: tag
-        run: echo "tag=v$(date +'%Y.%m.%d')-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+        run: |
+          VERSION=$(grep '^VERSION = ' mailsync.py | sed 's/VERSION = "//;s/"//')
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Créer la Release GitHub
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: "MailSync ${{ steps.tag.outputs.tag }}"
+          name: "MailSync v${{ steps.tag.outputs.version }}"
           body: |
             ## MailSync — Installeurs
 

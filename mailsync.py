@@ -78,7 +78,7 @@ if _OS == "Darwin":
 elif _OS == "Windows":
     _SANS = "Segoe UI"
     _MONO = "Consolas"
-    _SZ   = 0
+    _SZ   = -1
 else:
     _SANS = "DejaVu Sans"
     _MONO = "DejaVu Sans Mono"

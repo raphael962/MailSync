@@ -32,7 +32,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.0.2"
+VERSION = "1.0.4"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -54,18 +54,19 @@ CONFIG_FILE      = os.path.join(_USER_DIR, "migration_profiles.json")
 
 # ─── Palette de couleurs ──────────────────────────────────────────────────────
 
-C_BG       = "#1c1f2b"
-C_PANEL    = "#252836"
-C_BORDER   = "#313550"
-C_ACCENT   = "#4f7cff"
-C_ACCENT2  = "#ff5f6d"
-C_SUCCESS  = "#3ecf8e"
-C_WARN     = "#f0a500"
-C_TEXT     = "#e8eaf0"
-C_MUTED    = "#7a7f9a"
-C_INPUT_BG = "#1a1d2a"
-C_ROW_ALT  = "#1f2233"
-C_BTN_BG   = "#4f7cff"
+# Palette JCom
+C_BG       = "#1e2636"   # primaire JCom (fond)
+C_PANEL    = "#2f3a56"   # tertiaire JCom (surfaces/panneaux)
+C_BORDER   = "#406d96"   # bleu moyen (bordures)
+C_ACCENT   = "#48b8c0"   # turquoise (info, analyse)
+C_ACCENT2  = "#ff414d"   # secondaire JCom (rouge, actions fortes)
+C_SUCCESS  = "#48b8c0"   # turquoise (succès)
+C_WARN     = "#f4fec1"   # jaune pâle (avertissement)
+C_TEXT     = "#d8e8e8"   # texte principal
+C_MUTED    = "#8aa8c0"   # texte atténué
+C_INPUT_BG = "#162030"   # fond des champs (plus foncé que bg)
+C_ROW_ALT  = "#243350"   # alternance lignes tableau
+C_BTN_BG   = "#ff414d"   # boutons principaux = secondaire JCom
 C_BTN_FG   = "#ffffff"
 
 import platform as _platform
@@ -960,18 +961,18 @@ class App(tk.Tk):
             checked = delta > 0
             var     = tk.BooleanVar(value=checked)
             sel     = "☑" if checked else "☐"
-            tag_src = "has_delta" if delta > 0 else "done"
-            tag_dst = "alt" if i % 2 == 1 else ""
-            if i % 2 == 1:
-                tag_src = (tag_src, "alt")
+            base_tag = "has_delta" if delta > 0 else "done"
+            alt      = i % 2 == 1
+            tag_src  = (base_tag, "alt") if alt else (base_tag,)
+            tag_dst  = ("alt",) if alt else ()
             # Panneau source
             iid = self.tree.insert("", "end",
                                    values=(sel, name, src),
-                                   tags=(tag_src,))
+                                   tags=tag_src)
             # Panneau destination
             self.tree_dst.insert("", "end",
                                  values=(name, dst),
-                                 tags=(tag_dst,) if tag_dst else ())
+                                 tags=tag_dst)
             self.folder_rows.append((iid, name, src, dst, delta, var))
 
     def _on_tree_click(self, event):

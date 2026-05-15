@@ -71,7 +71,7 @@ if _OS == "Darwin":
 elif _OS == "Windows":
     _SANS = "Segoe UI"
     _MONO = "Consolas"
-    _SZ   = 2
+    _SZ   = 0
 else:
     _SANS = "DejaVu Sans"
     _MONO = "DejaVu Sans Mono"
@@ -129,13 +129,15 @@ def save_checkpoint(data):
 
 # ─── Logging vers fichier ─────────────────────────────────────────────────────
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8")],
-)
 log = logging.getLogger(__name__)
+
+def _init_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s  %(levelname)-8s  %(message)s",
+        datefmt="%H:%M:%S",
+        handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8")],
+    )
 
 # ─── IMAP helpers ─────────────────────────────────────────────────────────────
 
@@ -255,7 +257,7 @@ def fetch_message_uid(src_conn, uid):
     return body, internaldate
 
 def purge_infomaniak(conn, log_cb):
-    log_cb("Purge Infomaniak en cours...")
+    log_cb("Purge du serveur destination en cours...")
     status, folders = conn.list()
     if status != "OK":
         log_cb("  Impossible de lister les dossiers.", "error")
@@ -314,8 +316,8 @@ class App(tk.Tk):
         self.folder_rows = []    # [(name, src_count, dst_count, delta, BoolVar)]
 
         self._build_ui()
-        self.after(100, self._update_dynamic_labels)
         self._poll_queue()
+        self.after(100, self._update_dynamic_labels)
 
     # ── Construction de l'interface ───────────────────────────────────────────
 
@@ -325,8 +327,9 @@ class App(tk.Tk):
         header.pack(fill="x", padx=24, pady=(20, 0))
         tk.Label(header, text="MailSync", font=FONT_TITLE,
                  bg=C_BG, fg=C_TEXT).pack(side="left")
-        tk.Label(header, text="Paritel  →  Infomaniak",
-                 font=FONT_SMALL, bg=C_BG, fg=C_MUTED).pack(side="left", padx=16)
+        self.lbl_subtitle = tk.Label(header, text="",
+                 font=FONT_SMALL, bg=C_BG, fg=C_MUTED)
+        self.lbl_subtitle.pack(side="left", padx=16)
 
         # Notebook (onglets)
         style = ttk.Style(self)
@@ -473,7 +476,7 @@ class App(tk.Tk):
         self.btn_migrate.pack(side="left", padx=(0, 8))
         self.btn_migrate.config(state="disabled")
 
-        self.btn_purge = self._btn(fr_actions, "⚠  Purger Infomaniak",
+        self.btn_purge = self._btn(fr_actions, "⚠  Purger destination",
                                    self._confirm_purge, color=C_WARN)
         self.btn_purge.pack(side="right")
 
@@ -499,8 +502,8 @@ class App(tk.Tk):
 
         self.tree.heading("sel",    text="")
         self.tree.heading("folder", text="Dossier")
-        self.tree.heading("src",    text="Paritel")
-        self.tree.heading("dst",    text="Infomaniak")
+        self.tree.heading("src",    text="Source")
+        self.tree.heading("dst",    text="Destination")
         self.tree.heading("delta",  text="À copier")
 
         self.tree.column("sel",    width=36,  stretch=False, anchor="center")
@@ -824,10 +827,25 @@ class App(tk.Tk):
 
     def _analyse_thread(self):
         q = self.msg_queue
+        # Validation des champs
+        src_cfg = self._get_src_config()
+        dst_cfg = self._get_dst_config()
+        missing = []
+        if not src_cfg["host"]:    missing.append("Hôte IMAP source")
+        if not src_cfg["user"]:    missing.append("Utilisateur source")
+        if not src_cfg["password"]: missing.append("Mot de passe source")
+        if not dst_cfg["host"]:    missing.append("Hôte IMAP destination")
+        if not dst_cfg["user"]:    missing.append("Utilisateur destination")
+        if not dst_cfg["password"]: missing.append("Mot de passe destination")
+        if missing:
+            q.put({"kind": "error_modal",
+                   "text": "Champs manquants :\n\n• " + "\n• ".join(missing)})
+            return
+
         q.put({"kind": "log", "text": "Connexion aux serveurs...", "tag": "muted"})
         try:
-            src = connect(self._get_src_config())
-            dst = connect(self._get_dst_config())
+            src = connect(src_cfg)
+            dst = connect(dst_cfg)
         except Exception as e:
             q.put({"kind": "error_modal", "text": f"Connexion impossible :\n{e}"})
             return
@@ -904,14 +922,14 @@ class App(tk.Tk):
 
             try:
                 # Scan source
-                q.put({"kind": "log", "text": "  Scan Paritel...", "tag": "muted"})
+                q.put({"kind": "log", "text": "  Scan source...", "tag": "muted"})
                 def _prog_src(done, total, f=folder):
                     q.put({"kind": "log",
-                           "text": f"  Paritel : {done}/{total} en-têtes lus...",
+                           "text": f"  Source : {done}/{total} en-têtes lus...",
                            "tag": "muted"}) if done == total else None
                 src_ids = scan_message_ids(src, folder, progress_cb=_prog_src)
                 q.put({"kind": "log",
-                       "text": f"  {len(src_ids)} messages sur Paritel.", "tag": "info"})
+                       "text": f"  {len(src_ids)} messages sur le serveur source.", "tag": "info"})
 
                 if not src_ids:
                     q.put({"kind": "log", "text": "  Dossier vide, ignoré.", "tag": "muted"})
@@ -926,12 +944,12 @@ class App(tk.Tk):
                            "text": f"  {len(dst_ids)} Message-ID en cache (checkpoint).",
                            "tag": "muted"})
                 else:
-                    q.put({"kind": "log", "text": "  Scan Infomaniak...", "tag": "muted"})
+                    q.put({"kind": "log", "text": "  Scan destination...", "tag": "muted"})
                     ensure_folder(dst, folder)
                     dst_map = scan_message_ids(dst, folder)
                     dst_ids = set(dst_map.keys())
                     q.put({"kind": "log",
-                           "text": f"  {len(dst_ids)} messages sur Infomaniak.", "tag": "info"})
+                           "text": f"  {len(dst_ids)} messages sur le serveur destination.", "tag": "info"})
                     checkpoint[ck_key] = list(dst_ids)
                     save_checkpoint(checkpoint)
 
@@ -944,7 +962,7 @@ class App(tk.Tk):
 
                 if not to_copy:
                     q.put({"kind": "log",
-                           "text": "  Infomaniak est déjà à jour.", "tag": "success"})
+                           "text": "  Le serveur destination est déjà à jour.", "tag": "success"})
                     # Mise à jour du tableau
                     for row in self.folder_rows:
                         if row[1] == folder:
@@ -1085,5 +1103,6 @@ class App(tk.Tk):
 # ─── Lancement ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    _init_logging()
     app = App()
     app.mainloop()

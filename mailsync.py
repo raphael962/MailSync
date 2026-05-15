@@ -314,7 +314,7 @@ class App(tk.Tk):
         self.folder_rows = []    # [(name, src_count, dst_count, delta, BoolVar)]
 
         self._build_ui()
-        self._update_dynamic_labels()
+        self.after(100, self._update_dynamic_labels)
         self._poll_queue()
 
     # ── Construction de l'interface ───────────────────────────────────────────

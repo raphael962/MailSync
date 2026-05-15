@@ -1,0 +1,91 @@
+name: Build MailSync
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # Permet de lancer manuellement depuis l'interface GitHub
+
+jobs:
+
+  # ── Mac (.dmg) ──────────────────────────────────────────────────────────────
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer les dépendances
+        run: pip install pyinstaller tqdm pillow
+
+      - name: Installer create-dmg
+        run: brew install create-dmg
+
+      - name: Build
+        run: python3 build.py
+
+      - name: Déposer le DMG en artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MailSync-Mac
+          path: dist/*.dmg
+          retention-days: 30
+
+  # ── Windows (.exe installeur) ────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer les dépendances
+        run: pip install pyinstaller tqdm pillow
+
+      - name: Installer NSIS
+        run: choco install nsis --yes
+
+      - name: Build
+        run: python build.py
+
+      - name: Déposer l'EXE en artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MailSync-Windows
+          path: dist/*.exe
+          retention-days: 30
+
+  # ── Linux (.AppImage) ────────────────────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer les dépendances système
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y fuse libfuse2 xvfb
+
+      - name: Installer les dépendances Python
+        run: pip install pyinstaller tqdm pillow
+
+      - name: Build
+        run: xvfb-run python3 build.py
+
+      - name: Déposer l'AppImage en artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MailSync-Linux
+          path: dist/*.AppImage
+          retention-days: 30

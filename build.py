@@ -190,19 +190,22 @@ def build_linux():
 
     run(f'cp -r "{app_dir}/." "{appdir}/usr/bin/"')
 
-    # Icône de substitution minimale (carré bleu 512x512)
-    try:
-        from PIL import Image, ImageDraw
-        img  = Image.new("RGBA", (512, 512), "#4f7cff")
-        draw = ImageDraw.Draw(img)
-        draw.ellipse([60, 60, 452, 452], fill="white")
-        draw.text((180, 200), "MS", fill="#4f7cff")
-        img.save(f"{icon_dir}/{APP_NAME}.png")
-        img.save(f"{appdir}/{APP_NAME}.png")
-    except Exception:
-        # Sans Pillow : icône vide (l'AppImage fonctionnera quand même)
-        open(f"{icon_dir}/{APP_NAME}.png", "wb").close()
-        open(f"{appdir}/{APP_NAME}.png", "wb").close()
+    # Utiliser icon.png si présent, sinon icône minimale
+    src_icon = os.path.abspath("icon.png")
+    if os.path.exists(src_icon):
+        shutil.copy(src_icon, f"{icon_dir}/{APP_NAME}.png")
+        shutil.copy(src_icon, f"{appdir}/{APP_NAME}.png")
+    else:
+        try:
+            from PIL import Image, ImageDraw
+            img  = Image.new("RGBA", (512, 512), "#1e2636")
+            draw = ImageDraw.Draw(img)
+            draw.ellipse([60, 60, 452, 452], fill="#2f3a56")
+            img.save(f"{icon_dir}/{APP_NAME}.png")
+            img.save(f"{appdir}/{APP_NAME}.png")
+        except Exception:
+            open(f"{icon_dir}/{APP_NAME}.png", "wb").close()
+            open(f"{appdir}/{APP_NAME}.png", "wb").close()
 
     desktop = textwrap.dedent(f"""
         [Desktop Entry]

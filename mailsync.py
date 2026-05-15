@@ -12,6 +12,10 @@ INSTALLATION (Mac)
 
 import imaplib
 import email
+import urllib.request
+import urllib.error
+import tempfile
+import subprocess
 import email.utils
 import ssl
 import os
@@ -28,7 +32,8 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
+GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
 DEFAULT_DESTINATION = {"host": "", "port": "993", "user": "", "password": ""}
@@ -292,6 +297,113 @@ def purge_infomaniak(conn, log_cb):
             pass
     log_cb("Purge terminée.", "success")
 
+# ─── Mise à jour automatique ─────────────────────────────────────────────────
+
+def check_for_update(current_version, on_update_available):
+    """Vérifie la dernière release GitHub en arrière-plan."""
+    try:
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "MailSync"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            import json as _json
+            data = _json.loads(resp.read().decode())
+
+        latest_tag = data.get("tag_name", "").lstrip("v")
+        latest_version = data.get("name", "")
+
+        # Comparaison simple des numéros de version
+        def ver_tuple(v):
+            # Extraire x.y.z du tag (ex. "v1.0.1-abc1234" -> (1,0,1))
+            import re
+            m = re.search(r'(\d+)\.(\d+)\.(\d+)', v)
+            return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+
+        if ver_tuple(latest_tag) > ver_tuple(current_version):
+            # Trouver le bon asset selon l'OS
+            assets = data.get("assets", [])
+            asset_url = None
+            asset_name = None
+            for asset in assets:
+                name = asset["name"].lower()
+                if _OS == "Darwin" and name.endswith(".dmg"):
+                    asset_url  = asset["browser_download_url"]
+                    asset_name = asset["name"]
+                    break
+                elif _OS == "Windows" and name.endswith(".exe"):
+                    asset_url  = asset["browser_download_url"]
+                    asset_name = asset["name"]
+                    break
+                elif _OS == "Linux" and name.endswith(".appimage"):
+                    asset_url  = asset["browser_download_url"]
+                    asset_name = asset["name"]
+                    break
+
+            on_update_available(latest_tag, asset_url, asset_name)
+
+    except Exception:
+        pass  # Silencieux si pas de connexion
+
+def download_and_install(parent, version, asset_url, asset_name):
+    """Télécharge l'installeur et invite à le lancer."""
+    win = tk.Toplevel(parent)
+    win.title("Mise à jour disponible")
+    win.configure(bg=C_BG)
+    win.resizable(False, False)
+    win.grab_set()
+    w, h = 400, 180
+    parent.update_idletasks()
+    x = parent.winfo_x() + (parent.winfo_width() - w) // 2
+    y = parent.winfo_y() + (parent.winfo_height() - h) // 2
+    win.geometry(f"{w}x{h}+{x}+{y}")
+
+    lbl = tk.Label(win, text=f"Mise à jour v{version} disponible",
+                   bg=C_BG, fg=C_SUCCESS, font=(_SANS, _fs(11), "bold"))
+    lbl.pack(pady=(18, 6))
+
+    progress_lbl = tk.Label(win, text="Téléchargement en cours...",
+                            bg=C_BG, fg=C_MUTED, font=(_SANS, _fs(9)))
+    progress_lbl.pack(pady=(0, 10))
+
+    style = ttk.Style()
+    bar = ttk.Progressbar(win, length=340, mode="indeterminate",
+                          style="Green.Horizontal.TProgressbar")
+    bar.pack(pady=(0, 14))
+    bar.start(12)
+
+    def _download():
+        try:
+            tmp_dir  = tempfile.mkdtemp()
+            out_path = os.path.join(tmp_dir, asset_name)
+            urllib.request.urlretrieve(asset_url, out_path)
+            bar.stop()
+            win.after(0, lambda: _install_ready(out_path))
+        except Exception as e:
+            bar.stop()
+            win.after(0, lambda: progress_lbl.config(
+                text=f"Erreur : {e}", fg=C_ACCENT2))
+
+    def _install_ready(path):
+        bar.pack_forget()
+        progress_lbl.config(
+            text="Téléchargement terminé. Cliquez pour installer.",
+            fg=C_TEXT)
+        def _launch():
+            if _OS == "Darwin":
+                subprocess.Popen(["open", path])
+            elif _OS == "Windows":
+                subprocess.Popen([path], shell=True)
+            else:
+                os.chmod(path, 0o755)
+                subprocess.Popen([path])
+            win.destroy()
+        tk.Button(win, text="Installer maintenant",
+                  command=_launch,
+                  bg=C_SUCCESS, fg=C_BG, font=FONT_BTN,
+                  relief="flat", padx=16, pady=6, cursor="hand2"
+                  ).pack()
+
+    threading.Thread(target=_download, daemon=True).start()
+
 # ─── Application principale ───────────────────────────────────────────────────
 
 class App(tk.Tk):
@@ -324,6 +436,13 @@ class App(tk.Tk):
         self._build_ui()
         self._poll_queue()
         self.after(100, self._update_dynamic_labels)
+        # Vérification de mise à jour en arrière-plan
+        threading.Thread(
+            target=check_for_update,
+            args=(VERSION, lambda v, u, n: self.after(
+                0, lambda: download_and_install(self, v, u, n))),
+            daemon=True
+        ).start()
 
     # ── Construction de l'interface ───────────────────────────────────────────
 
@@ -349,8 +468,14 @@ class App(tk.Tk):
                   background=[("selected", C_BG)],
                   foreground=[("selected", C_TEXT)])
 
+        # Barre de version en bas (doit être packée AVANT le notebook)
+        tk.Label(self, text=f"v{VERSION}",
+                 bg=C_BG, fg=C_MUTED,
+                 font=(_SANS, _fs(8))
+                 ).pack(side="bottom", anchor="e", padx=12, pady=3)
+
         nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True, padx=16, pady=12)
+        nb.pack(fill="both", expand=True, padx=16, pady=(12, 0))
 
         tab_conf  = tk.Frame(nb, bg=C_BG)
         tab_mig   = tk.Frame(nb, bg=C_BG)
@@ -359,12 +484,6 @@ class App(tk.Tk):
 
         self._build_config_tab(tab_conf)
         self._build_migration_tab(tab_mig)
-
-        # Barre de version en bas
-        tk.Label(self, text=f"v{VERSION}",
-                 bg=C_BG, fg=C_MUTED,
-                 font=(_SANS, _fs(8))
-                 ).pack(side="right", padx=12, pady=3)
 
     def _section(self, parent, title):
         fr = tk.LabelFrame(parent, text=f"  {title}  ",
@@ -1070,19 +1189,57 @@ class App(tk.Tk):
 
     def _confirm_purge(self):
         dst_label = self.dst_host.get().strip() or "Destination"
-        if not messagebox.askyesno(
-            f"Purge {dst_label}",
-            f"Supprimer TOUS les messages et dossiers de la boîte {dst_label} ?\n\n"
-            "⚠  Cette action est IRRÉVERSIBLE.",
-            icon="warning"
-        ):
+        src_label = self.src_host.get().strip() or "Source"
+
+        win = tk.Toplevel(self)
+        win.title("Confirmation de purge")
+        win.configure(bg=C_BG)
+        win.resizable(False, False)
+        win.grab_set()
+        w, h = 420, 200
+        win.geometry(f"{w}x{h}")
+        # Centrer sur la fenêtre principale
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        win.geometry(f"{w}x{h}+{x}+{y}")
+
+        tk.Label(win,
+                 text=f"Purger {dst_label} ?",
+                 bg=C_BG, fg=C_ACCENT2,
+                 font=(_SANS, _fs(11), "bold")
+                 ).pack(pady=(20, 6))
+
+        msg = (f"Tous les messages de {dst_label} seront supprimés.\n"
+               f"Le serveur source ({src_label}) ne sera pas touché.\n"
+               "Cette action est IRRÉVERSIBLE.")
+        tk.Label(win,
+                 text=msg,
+                 bg=C_BG, fg=C_TEXT,
+                 font=(_SANS, _fs(9)),
+                 justify="center"
+                 ).pack(pady=(0, 16))
+
+        confirmed = [False]
+
+        def _ok():
+            confirmed[0] = True
+            win.destroy()
+
+        fr_btns = tk.Frame(win, bg=C_BG)
+        fr_btns.pack()
+        tk.Button(fr_btns, text="Annuler", command=win.destroy,
+                  bg=C_PANEL, fg=C_TEXT, font=FONT_BTN,
+                  relief="flat", padx=16, pady=6, cursor="hand2").pack(side="left", padx=(0, 12))
+        tk.Button(fr_btns, text="Purger", command=_ok,
+                  bg=C_ACCENT2, fg="white", font=FONT_BTN,
+                  relief="flat", padx=16, pady=6, cursor="hand2").pack(side="left")
+
+        win.wait_window()
+
+        if not confirmed[0]:
             return
-        if not messagebox.askyesno(
-            "Dernière confirmation",
-            f"Confirmer la suppression définitive de toute la boîte {dst_label} ?",
-            icon="warning"
-        ):
-            return
+
         self.running = True
         self.btn_purge.config(state="disabled")
         self.btn_migrate.config(state="disabled")

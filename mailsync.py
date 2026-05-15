@@ -32,7 +32,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}

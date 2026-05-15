@@ -32,7 +32,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.0.8"
+VERSION = "1.0.9"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -415,8 +415,8 @@ class App(tk.Tk):
         if _OS == "Windows":
             try:
                 import ctypes
-                # PerMonitorV2 awareness (Windows 10 1703+)
-                ctypes.windll.shcore.SetProcessDpiAwareness(2)
+                # System DPI awareness — laisse Windows scaler automatiquement
+                ctypes.windll.shcore.SetProcessDpiAwareness(1)
             except Exception:
                 try:
                     ctypes.windll.user32.SetProcessDPIAware()

@@ -32,7 +32,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.0.7"
+VERSION = "1.0.8"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -423,6 +423,23 @@ class App(tk.Tk):
                 except Exception:
                     pass
         self.title("MailSync")
+        # Icône de la fenêtre tkinter
+        try:
+            import sys as _sys
+            _icon_paths = [
+                os.path.join(os.path.dirname(_sys.executable), "icon.png"),
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png"),
+                "icon.png",
+            ]
+            for _p in _icon_paths:
+                if os.path.exists(_p):
+                    from PIL import Image as _PILImage, ImageTk as _PILImageTk
+                    _ico = _PILImageTk.PhotoImage(file=_p)
+                    self.iconphoto(True, _ico)
+                    self._icon_ref = _ico  # évite le garbage collect
+                    break
+        except Exception:
+            pass
         self.configure(bg=C_BG)
         self.resizable(True, True)
         w, h = (1020, 800) if _OS == "Windows" else (980, 760)
@@ -613,6 +630,10 @@ class App(tk.Tk):
         self.btn_purge = self._btn(fr_actions, "⚠  Purger destination",
                                    self._confirm_purge, color=C_ACCENT2)
         self.btn_purge.pack(side="right")
+
+        self.btn_update = self._btn(fr_actions, "🔄 Mise à jour",
+                                    self._check_update_manual, color=C_PANEL)
+        self.btn_update.pack(side="right", padx=(0, 8))
 
         # Double panneau source / destination
         fr_tables = tk.Frame(parent, bg=C_BG)
@@ -1258,6 +1279,48 @@ class App(tk.Tk):
         q.put({"kind": "migration_done"})
 
     # ── Purge ─────────────────────────────────────────────────────────────────
+
+    def _check_update_manual(self):
+        self.btn_update.config(state="disabled", text="Recherche...")
+        def _run():
+            def _on_found(version, url, name):
+                self.after(0, lambda: download_and_install(self, version, url, name))
+            def _on_not_found():
+                self.after(0, lambda: [
+                    self.btn_update.config(state="normal", text="🔄 Mise à jour"),
+                    messagebox.showinfo("Mise à jour", f"Vous avez déjà la dernière version (v{VERSION}).")
+                ])
+            try:
+                url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+                req = urllib.request.Request(url, headers={"User-Agent": "MailSync"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    import json as _json
+                    data = _json.loads(resp.read().decode())
+                latest = data.get("tag_name", "").lstrip("v")
+                def ver(v):
+                    import re
+                    m = re.search(r'(\d+)\.(\d+)\.(\d+)', v)
+                    return tuple(int(x) for x in m.groups()) if m else (0,0,0)
+                if ver(latest) > ver(VERSION):
+                    assets = data.get("assets", [])
+                    asset_url = asset_name = None
+                    for a in assets:
+                        n = a["name"].lower()
+                        if (_OS == "Darwin" and n.endswith(".dmg")) or \
+                           (_OS == "Windows" and n.endswith(".exe")) or \
+                           (_OS == "Linux" and n.endswith(".appimage")):
+                            asset_url  = a["browser_download_url"]
+                            asset_name = a["name"]
+                            break
+                    _on_found(latest, asset_url, asset_name)
+                else:
+                    _on_not_found()
+            except Exception:
+                self.after(0, lambda: [
+                    self.btn_update.config(state="normal", text="🔄 Mise à jour"),
+                    messagebox.showwarning("Mise à jour", "Impossible de vérifier les mises à jour.")
+                ])
+        threading.Thread(target=_run, daemon=True).start()
 
     def _confirm_purge(self):
         dst_label = self.dst_host.get().strip() or "Destination"

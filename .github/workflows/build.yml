@@ -3,7 +3,7 @@ name: Build MailSync
 on:
   push:
     branches: [main]
-  workflow_dispatch:   # Permet de lancer manuellement depuis l'interface GitHub
+  workflow_dispatch:
 
 jobs:
 
@@ -89,3 +89,57 @@ jobs:
           name: MailSync-Linux
           path: dist/*.AppImage
           retention-days: 30
+
+  # ── Release (attend les trois builds) ────────────────────────────────────────
+  release:
+    needs: [build-mac, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Récupérer les artifacts Mac
+        uses: actions/download-artifact@v4
+        with:
+          name: MailSync-Mac
+          path: release/mac
+
+      - name: Récupérer les artifacts Windows
+        uses: actions/download-artifact@v4
+        with:
+          name: MailSync-Windows
+          path: release/windows
+
+      - name: Récupérer les artifacts Linux
+        uses: actions/download-artifact@v4
+        with:
+          name: MailSync-Linux
+          path: release/linux
+
+      - name: Générer un tag de version
+        id: tag
+        run: echo "tag=v$(date +'%Y.%m.%d')-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Créer la Release GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "MailSync ${{ steps.tag.outputs.tag }}"
+          body: |
+            ## MailSync — Installeurs
+
+            | Système | Fichier |
+            |---------|---------|
+            | Mac | MailSync.dmg |
+            | Windows | MailSync Setup.exe |
+            | Linux | MailSync.AppImage |
+
+            ### Installation
+            **Mac** : ouvrir le DMG et glisser dans Applications. Si Gatekeeper bloque, faire clic droit → Ouvrir.
+            **Windows** : double-cliquer sur le Setup.exe. Si Defender bloque, cliquer "Informations complémentaires" → "Exécuter quand même".
+            **Linux** : rendre le fichier exécutable (`chmod +x`) puis le lancer.
+          files: |
+            release/mac/*.dmg
+            release/windows/*.exe
+            release/linux/*.AppImage
+          draft: false
+          prerelease: false

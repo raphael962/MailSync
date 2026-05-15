@@ -32,7 +32,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -611,15 +611,12 @@ class App(tk.Tk):
                                    self._confirm_purge, color=C_WARN)
         self.btn_purge.pack(side="right")
 
-        # Tableau des dossiers
-        fr_table = self._section(parent, "Dossiers")
-        fr_table.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
-        fr_table.columnconfigure(0, weight=1)
-        fr_table.rowconfigure(0, weight=1)
-
-        cols = ("sel", "folder", "src", "dst", "delta")
-        self.tree = ttk.Treeview(fr_table, columns=cols,
-                                 show="headings", selectmode="none")
+        # Double panneau source / destination
+        fr_tables = tk.Frame(parent, bg=C_BG)
+        fr_tables.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
+        fr_tables.columnconfigure(0, weight=1)
+        fr_tables.columnconfigure(1, weight=1)
+        fr_tables.rowconfigure(1, weight=1)
 
         style = ttk.Style()
         style.configure("Treeview",
@@ -631,27 +628,57 @@ class App(tk.Tk):
                         font=FONT_SMALL, relief="flat")
         style.map("Treeview", background=[("selected", C_BORDER)])
 
+        # En-têtes des panneaux
+        self.lbl_src_panel = tk.Label(fr_tables, text="Source",
+                                      bg=C_BG, fg=C_MUTED, font=FONT_SMALL)
+        self.lbl_src_panel.grid(row=0, column=0, sticky="w", padx=2, pady=(0, 2))
+        self.lbl_dst_panel = tk.Label(fr_tables, text="Destination",
+                                      bg=C_BG, fg=C_MUTED, font=FONT_SMALL)
+        self.lbl_dst_panel.grid(row=0, column=1, sticky="w", padx=6, pady=(0, 2))
+
+        # Panneau gauche — Source (cochable)
+        fr_src_tree = tk.Frame(fr_tables, bg=C_BORDER, highlightbackground=C_BORDER, highlightthickness=1)
+        fr_src_tree.grid(row=1, column=0, sticky="nsew", padx=(0, 3))
+        fr_src_tree.columnconfigure(0, weight=1)
+        fr_src_tree.rowconfigure(0, weight=1)
+
+        self.tree = ttk.Treeview(fr_src_tree, columns=("sel", "folder", "count"),
+                                 show="headings", selectmode="none")
         self.tree.heading("sel",    text="")
         self.tree.heading("folder", text="Dossier")
-        self.tree.heading("src",    text="Source")
-        self.tree.heading("dst",    text="Destination")
-        self.tree.heading("delta",  text="À copier")
-
-        self.tree.column("sel",    width=36,  stretch=False, anchor="center")
-        self.tree.column("folder", width=260, stretch=True,  anchor="w")
-        self.tree.column("src",    width=90,  stretch=False, anchor="center")
-        self.tree.column("dst",    width=100, stretch=False, anchor="center")
-        self.tree.column("delta",  width=90,  stretch=False, anchor="center")
-
+        self.tree.heading("count",  text="Msgs")
+        self.tree.column("sel",    width=30,  stretch=False, anchor="center")
+        self.tree.column("folder", width=200, stretch=True,  anchor="w")
+        self.tree.column("count",  width=60,  stretch=False, anchor="center")
         self.tree.tag_configure("has_delta", foreground=C_ACCENT)
         self.tree.tag_configure("done",      foreground=C_SUCCESS)
         self.tree.tag_configure("alt",       background=C_ROW_ALT)
 
-        vsb = ttk.Scrollbar(fr_table, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
+        vsb_src = ttk.Scrollbar(fr_src_tree, orient="vertical", command=self._sync_scroll_src)
+        self.tree.configure(yscrollcommand=self._on_src_scroll)
         self.tree.grid(row=0, column=0, sticky="nsew")
-        vsb.grid(row=0, column=1, sticky="ns")
+        vsb_src.grid(row=0, column=1, sticky="ns")
         self.tree.bind("<Button-1>", self._on_tree_click)
+
+        # Panneau droit — Destination (lecture seule)
+        fr_dst_tree = tk.Frame(fr_tables, bg=C_BORDER, highlightbackground=C_BORDER, highlightthickness=1)
+        fr_dst_tree.grid(row=1, column=1, sticky="nsew", padx=(3, 0))
+        fr_dst_tree.columnconfigure(0, weight=1)
+        fr_dst_tree.rowconfigure(0, weight=1)
+
+        self.tree_dst = ttk.Treeview(fr_dst_tree, columns=("folder", "count"),
+                                     show="headings", selectmode="none")
+        self.tree_dst.heading("folder", text="Dossier")
+        self.tree_dst.heading("count",  text="Msgs")
+        self.tree_dst.column("folder", width=200, stretch=True,  anchor="w")
+        self.tree_dst.column("count",  width=60,  stretch=False, anchor="center")
+        self.tree_dst.tag_configure("alt", background=C_ROW_ALT)
+
+        vsb_dst = ttk.Scrollbar(fr_dst_tree, orient="vertical", command=self._sync_scroll_dst)
+        self.tree_dst.configure(yscrollcommand=self._on_dst_scroll)
+        self.tree_dst.grid(row=0, column=0, sticky="nsew")
+        vsb_dst.grid(row=0, column=1, sticky="ns")
+        self._scrolling = False
 
         # Barre de progression globale
         fr_prog = tk.Frame(parent, bg=C_BG)
@@ -708,6 +735,28 @@ class App(tk.Tk):
         widget.tag_config("error",   foreground=C_ACCENT2)
         widget.tag_config("muted",   foreground=C_MUTED)
 
+    def _on_src_scroll(self, *args):
+        self.tree.yview(*args[:1] if args else ())
+        if not self._scrolling:
+            self._scrolling = True
+            self.tree_dst.yview_moveto(args[0] if args else 0)
+            self._scrolling = False
+
+    def _on_dst_scroll(self, *args):
+        self.tree_dst.yview(*args[:1] if args else ())
+        if not self._scrolling:
+            self._scrolling = True
+            self.tree.yview_moveto(args[0] if args else 0)
+            self._scrolling = False
+
+    def _sync_scroll_src(self, *args):
+        self.tree.yview(*args)
+        self.tree_dst.yview(*args)
+
+    def _sync_scroll_dst(self, *args):
+        self.tree_dst.yview(*args)
+        self.tree.yview(*args)
+
     # ── Polling queue (thread-safe UI updates) ────────────────────────────────
 
     def _poll_queue(self):
@@ -755,10 +804,16 @@ class App(tk.Tk):
                     delta = item["delta"]
                     sel   = "☑" if item["checked"] else "☐"
                     tag   = "done" if delta == 0 else "has_delta"
-                    self.tree.item(iid, values=(
-                        sel, item["folder"], item["src"],
-                        item["dst"], delta if delta > 0 else "✓"
-                    ), tags=(tag,))
+                    self.tree.item(iid, values=(sel, item["folder"], item["src"]), tags=(tag,))
+                    # Mettre à jour aussi le panneau destination
+                    dst_children = self.tree_dst.get_children()
+                    src_children = self.tree.get_children()
+                    try:
+                        idx = list(src_children).index(iid)
+                        if idx < len(dst_children):
+                            self.tree_dst.item(dst_children[idx], values=(item["folder"], item["dst"]))
+                    except (ValueError, IndexError):
+                        pass
 
         except queue.Empty:
             pass
@@ -875,8 +930,8 @@ class App(tk.Tk):
         # Bouton purge dynamique
         self.btn_purge.config(text=f"⚠  Purger {dst_label}")
         # En-têtes tableau
-        self.tree.heading("src", text=src_label)
-        self.tree.heading("dst", text=dst_label)
+        self.lbl_src_panel.config(text=src_label)
+        self.lbl_dst_panel.config(text=dst_label)
 
     def _test_connect(self, side):
         cfg = self._get_src_config() if side == "source" else self._get_dst_config()
@@ -899,18 +954,24 @@ class App(tk.Tk):
 
     def _populate_table(self, rows):
         self.tree.delete(*self.tree.get_children())
+        self.tree_dst.delete(*self.tree_dst.get_children())
         self.folder_rows = []
         for i, (name, src, dst, delta) in enumerate(rows):
             checked = delta > 0
             var     = tk.BooleanVar(value=checked)
             sel     = "☑" if checked else "☐"
-            tag     = "has_delta" if delta > 0 else "done"
+            tag_src = "has_delta" if delta > 0 else "done"
+            tag_dst = "alt" if i % 2 == 1 else ""
             if i % 2 == 1:
-                tag = (tag, "alt")
+                tag_src = (tag_src, "alt")
+            # Panneau source
             iid = self.tree.insert("", "end",
-                                   values=(sel, name, src, dst,
-                                           delta if delta > 0 else "✓"),
-                                   tags=(tag,))
+                                   values=(sel, name, src),
+                                   tags=(tag_src,))
+            # Panneau destination
+            self.tree_dst.insert("", "end",
+                                 values=(name, dst),
+                                 tags=(tag_dst,) if tag_dst else ())
             self.folder_rows.append((iid, name, src, dst, delta, var))
 
     def _on_tree_click(self, event):

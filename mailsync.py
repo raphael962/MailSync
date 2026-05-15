@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
 """
-MailSync — Interface graphique
-Garage Martelet — garage@martelet39.fr
-
-INSTALLATION (Mac)
-==================
-1. Python 3 requis : https://www.python.org/downloads/
-2. pip3 install tqdm
-3. python3 migration_imap_gui.py
+MailSync — Migration IMAP
+Développé par JCom (Jodeau Communication)
 """
 
 import imaplib
@@ -32,7 +26,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.0.9"
+VERSION = "1.1.0"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}

@@ -32,7 +32,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.0.4"
+VERSION = "1.0.6"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -389,6 +389,7 @@ def download_and_install(parent, version, asset_url, asset_name):
             text="Téléchargement terminé. Cliquez pour installer.",
             fg=C_TEXT)
         def _launch():
+            win.destroy()
             if _OS == "Darwin":
                 subprocess.Popen(["open", path])
             elif _OS == "Windows":
@@ -396,7 +397,8 @@ def download_and_install(parent, version, asset_url, asset_name):
             else:
                 os.chmod(path, 0o755)
                 subprocess.Popen([path])
-            win.destroy()
+            # Fermer l'app après un court délai pour laisser l'installeur démarrer
+            self.after(800, self.destroy)
         tk.Button(win, text="Installer maintenant",
                   command=_launch,
                   bg=C_SUCCESS, fg=C_BG, font=FONT_BTN,
@@ -604,12 +606,12 @@ class App(tk.Tk):
         self.btn_select_none.pack(side="left", padx=(0, 16))
 
         self.btn_migrate = self._btn(fr_actions, "Lancer la migration",
-                                     self._start_migration, color=C_ACCENT2)
+                                     self._start_migration, color=C_WARN)
         self.btn_migrate.pack(side="left", padx=(0, 8))
         self.btn_migrate.config(state="disabled")
 
         self.btn_purge = self._btn(fr_actions, "⚠  Purger destination",
-                                   self._confirm_purge, color=C_WARN)
+                                   self._confirm_purge, color=C_ACCENT2)
         self.btn_purge.pack(side="right")
 
         # Double panneau source / destination
@@ -719,8 +721,16 @@ class App(tk.Tk):
     # ── Widgets utilitaires ───────────────────────────────────────────────────
 
     def _btn(self, parent, text, command, color=C_BTN_BG):
-        fg = C_BG if color in (C_SUCCESS, C_WARN, C_ACCENT, C_ACCENT2) else C_TEXT
-        if color == C_PANEL:
+        # Couleurs claires = texte foncé ; couleurs foncées/vives = texte blanc
+        light_colors = (C_WARN, C_ACCENT, C_SUCCESS)
+        dark_text_colors = (C_PANEL,)
+        if color in light_colors:
+            fg = C_BG      # texte foncé sur fond clair
+        elif color == C_ACCENT2:
+            fg = "#ffffff"  # texte blanc sur rouge
+        elif color == C_BTN_BG:
+            fg = "#ffffff"
+        else:
             fg = C_TEXT
         b = tk.Button(parent, text=text, command=command,
                       bg=color, fg=fg, font=FONT_BTN,

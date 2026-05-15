@@ -28,6 +28,8 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
+VERSION = "1.0.0"
+
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
 DEFAULT_DESTINATION = {"host": "", "port": "993", "user": "", "password": ""}
 
@@ -142,7 +144,11 @@ def _init_logging():
 # ─── IMAP helpers ─────────────────────────────────────────────────────────────
 
 def connect(config):
-    ctx  = ssl.create_default_context()
+    ctx = ssl.create_default_context()
+    # Certains serveurs utilisent des certificats auto-signés ou des chaînes
+    # incomplètes — on désactive la vérification stricte pour la compatibilité.
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     conn = imaplib.IMAP4_SSL(config["host"], int(config["port"]), ssl_context=ctx)
     conn.login(config["user"], config["password"])
     return conn
@@ -353,6 +359,12 @@ class App(tk.Tk):
 
         self._build_config_tab(tab_conf)
         self._build_migration_tab(tab_mig)
+
+        # Barre de version en bas
+        tk.Label(self, text=f"v{VERSION}",
+                 bg=C_BG, fg=C_MUTED,
+                 font=(_SANS, _fs(8))
+                 ).pack(side="right", padx=12, pady=3)
 
     def _section(self, parent, title):
         fr = tk.LabelFrame(parent, text=f"  {title}  ",

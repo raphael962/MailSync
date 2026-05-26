@@ -26,7 +26,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -35,9 +35,10 @@ DEFAULT_DESTINATION = {"host": "", "port": "993", "user": "", "password": ""}
 SYSTEM_FOLDERS   = {"INBOX", "Drafts", "Sent", "Trash", "Junk", "Spam",
                     "Brouillons", "Envoyés", "Corbeille", "Indésirables",
                     "DRAFTS", "SENT", "TRASH", "JUNK", "SPAM"}
-BATCH_SIZE       = 100
-PAUSE_SECONDS    = 2
-HEADER_BATCH     = 200
+BATCH_SIZE       = 50     # pause tous les 50 messages (était 100)
+PAUSE_SECONDS    = 3      # pause un peu plus longue entre batches
+HEADER_BATCH     = 50     # fetch par lots de 50 (était 200 — trop grand pour certains serveurs)
+MAX_RETRIES      = 5      # tentatives de reconnexion par message
 
 # Fichiers de données dans le dossier utilisateur (pas dans Program Files)
 _USER_DIR        = os.path.join(os.path.expanduser("~"), "MailSync")
@@ -69,23 +70,40 @@ _OS = _platform.system()
 if _OS == "Darwin":
     _SANS = "Helvetica Neue"
     _MONO = "Menlo"
-    _SZ   = 0
 elif _OS == "Windows":
     _SANS = "Segoe UI"
     _MONO = "Consolas"
-    _SZ   = -1
 else:
     _SANS = "DejaVu Sans"
     _MONO = "DejaVu Sans Mono"
-    _SZ   = 0
 
-def _fs(n): return n + _SZ
+# Les tailles de police sont definies en points ; elles seront recalculees
+# apres creation de la fenetre pour tenir compte du DPI reel (surtout Windows).
+_BASE_SIZES = {
+    "title": 14, "label": 11, "small": 11,
+    "mono": 10,  "btn": 11,   "ver": 9,
+}
 
-FONT_TITLE  = (_SANS, _fs(14), "bold")
-FONT_LABEL  = (_SANS, _fs(10))
-FONT_SMALL  = (_SANS, _fs(10))
-FONT_MONO   = (_MONO, _fs(10))
-FONT_BTN    = (_SANS, _fs(10), "bold")
+def _make_fonts(scale=1.0):
+    """Recalcule toutes les polices avec un facteur d'echelle."""
+    def s(n): return max(8, round(n * scale))
+    return {
+        "FONT_TITLE": (_SANS, s(_BASE_SIZES["title"]), "bold"),
+        "FONT_LABEL": (_SANS, s(_BASE_SIZES["label"])),
+        "FONT_SMALL": (_SANS, s(_BASE_SIZES["small"])),
+        "FONT_MONO":  (_MONO, s(_BASE_SIZES["mono"])),
+        "FONT_BTN":   (_SANS, s(_BASE_SIZES["btn"]), "bold"),
+        "FONT_VER":   (_SANS, s(_BASE_SIZES["ver"])),
+    }
+
+# Valeurs par defaut (scale 1.0) — remplacees dans App.__init__ apres mesure DPI
+_fonts = _make_fonts(1.0)
+FONT_TITLE = _fonts["FONT_TITLE"]
+FONT_LABEL = _fonts["FONT_LABEL"]
+FONT_SMALL = _fonts["FONT_SMALL"]
+FONT_MONO  = _fonts["FONT_MONO"]
+FONT_BTN   = _fonts["FONT_BTN"]
+FONT_VER   = _fonts["FONT_VER"]
 
 # ─── Gestion des profils ─────────────────────────────────────────────────────
 
@@ -154,12 +172,30 @@ def connect(config):
     return conn
 
 def parse_folder_names(raw_list):
+    """
+    Parse les réponses LIST de l'IMAP, qui peuvent prendre plusieurs formes :
+      - (\\HasNoChildren) "/" "Nom avec espaces"
+      - (\\HasNoChildren) "/" Nomsimple
+      - (\\HasNoChildren) NIL Nomsimple
+      - (\\HasNoChildren) "/" INBOX
+    On extrait uniquement la dernière composante (le nom, guillemets ou non).
+    """
     names = []
     for f in raw_list:
-        decoded = f.decode("utf-8", errors="replace")
+        if f is None:
+            continue
+        decoded = f.decode("utf-8", errors="replace").strip()
+        # Format : (...attributs...) "séparateur" "Nom" ou Nom
+        # On cherche d'abord un nom entre guillemets en fin de ligne
         m = re.search(r'"([^"]+)"\s*$', decoded)
-        name = m.group(1).strip() if m else decoded.rsplit(" ", 1)[-1].strip().strip('"')
-        if name:
+        if m:
+            name = m.group(1).strip()
+        else:
+            # Nom sans guillemets en fin de ligne (après le séparateur)
+            # Exemples : ") NIL INBOX"  ou  ") \"/\" HMI"
+            parts = decoded.rsplit(" ", 1)
+            name = parts[-1].strip().strip('"')
+        if name and name not in ("NIL", ""):
             names.append(name)
     return names
 
@@ -352,11 +388,11 @@ def download_and_install(parent, version, asset_url, asset_name):
     win.geometry(f"{w}x{h}+{x}+{y}")
 
     lbl = tk.Label(win, text=f"Mise à jour v{version} disponible",
-                   bg=C_BG, fg=C_SUCCESS, font=(_SANS, _fs(11), "bold"))
+                   bg=C_BG, fg=C_SUCCESS, font=FONT_BTN)
     lbl.pack(pady=(18, 6))
 
     progress_lbl = tk.Label(win, text="Téléchargement en cours...",
-                            bg=C_BG, fg=C_MUTED, font=(_SANS, _fs(9)))
+                            bg=C_BG, fg=C_MUTED, font=FONT_SMALL)
     progress_lbl.pack(pady=(0, 10))
 
     style = ttk.Style()
@@ -392,7 +428,7 @@ def download_and_install(parent, version, asset_url, asset_name):
                 os.chmod(path, 0o755)
                 subprocess.Popen([path])
             # Fermer l'app après un court délai pour laisser l'installeur démarrer
-            self.after(800, self.destroy)
+            parent.after(800, parent.destroy)
         tk.Button(win, text="Installer maintenant",
                   command=_launch,
                   bg=C_SUCCESS, fg=C_BG, font=FONT_BTN,
@@ -409,14 +445,34 @@ class App(tk.Tk):
         if _OS == "Windows":
             try:
                 import ctypes
-                # System DPI awareness — laisse Windows scaler automatiquement
-                ctypes.windll.shcore.SetProcessDpiAwareness(1)
+                # DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED (mode le plus compatible avec tkinter)
+                # On laisse tkinter gérer le scaling sans que Windows interfère.
+                ctypes.windll.shcore.SetProcessDpiAwareness(0)
             except Exception:
-                try:
-                    ctypes.windll.user32.SetProcessDPIAware()
-                except Exception:
-                    pass
+                pass
         self.title("MailSync")
+
+        # ── Détection DPI et recalibrage des polices ──────────────────────────
+        # Sur Windows avec un écran 150 % ou 200 %, tkinter reçoit des pixels
+        # logiques plus petits que les pixels physiques. On mesure le ratio
+        # réel via winfo_fpixels('1i') (pixels par pouce) et on recalcule
+        # toutes les polices en conséquence.
+        self.update_idletasks()
+        try:
+            ppi = self.winfo_fpixels('1i')   # pixels logiques par pouce
+            scale = ppi / 96.0               # 96 ppi = référence 100 %
+            scale = max(1.0, min(scale, 3.0))  # garde entre 1× et 3×
+        except Exception:
+            scale = 1.0
+
+        global FONT_TITLE, FONT_LABEL, FONT_SMALL, FONT_MONO, FONT_BTN, FONT_VER
+        _f = _make_fonts(scale)
+        FONT_TITLE = _f["FONT_TITLE"]
+        FONT_LABEL = _f["FONT_LABEL"]
+        FONT_SMALL = _f["FONT_SMALL"]
+        FONT_MONO  = _f["FONT_MONO"]
+        FONT_BTN   = _f["FONT_BTN"]
+        FONT_VER   = _f["FONT_VER"]
         # Icône de la fenêtre tkinter
         try:
             import sys as _sys
@@ -485,7 +541,7 @@ class App(tk.Tk):
         # Barre de version en bas (doit être packée AVANT le notebook)
         tk.Label(self, text=f"v{VERSION}",
                  bg=C_BG, fg=C_MUTED,
-                 font=(_SANS, _fs(8))
+                 font=FONT_SMALL
                  ).pack(side="bottom", anchor="e", padx=12, pady=3)
 
         nb = ttk.Notebook(self)
@@ -1195,27 +1251,81 @@ class App(tk.Tk):
                 copied  = 0
                 errors  = 0
 
+                def _reconnect_src():
+                    for _attempt in range(MAX_RETRIES):
+                        try:
+                            c = connect(self._get_src_config())
+                            q.put({"kind": "log",
+                                   "text": "  Reconnexion source réussie.", "tag": "muted"})
+                            return c
+                        except Exception:
+                            time.sleep(2 ** _attempt)
+                    raise Exception("Impossible de se reconnecter au serveur source.")
+
+                def _reconnect_dst():
+                    for _attempt in range(MAX_RETRIES):
+                        try:
+                            c = connect(self._get_dst_config())
+                            q.put({"kind": "log",
+                                   "text": "  Reconnexion destination réussie.", "tag": "muted"})
+                            return c
+                        except Exception:
+                            time.sleep(2 ** _attempt)
+                    raise Exception("Impossible de se reconnecter au serveur destination.")
+
                 for i, uid in enumerate(pending):
                     pct_folder = int((fi + (i + 1) / len(pending)) / n_folders * 100)
                     q.put({"kind": "progress",
                            "value": pct_folder,
                            "label": f"{folder} — {i+1}/{len(pending)}"})
-                    try:
-                        raw_email, internaldate = fetch_message_uid(src, uid)
-                        if raw_email is None:
-                            raise Exception("Corps introuvable")
-                        dst.append(f'"{folder}"', None, internaldate, raw_email)
-                        copied += 1
-                        if copied % BATCH_SIZE == 0:
-                            time.sleep(PAUSE_SECONDS)
-                    except Exception as e:
+                    # Tentatives avec reconnexion automatique sur erreur réseau
+                    last_err = None
+                    for attempt in range(MAX_RETRIES):
+                        try:
+                            raw_email, internaldate = fetch_message_uid(src, uid)
+                            if raw_email is None:
+                                raise Exception("Corps introuvable")
+                            dst.append(f'"{folder}"', None, internaldate, raw_email)
+                            copied += 1
+                            last_err = None
+                            break  # succès
+                        except Exception as e:
+                            last_err = e
+                            err_str = str(e).lower()
+                            is_network = any(k in err_str for k in
+                                             ("eof", "socket", "broken", "reset",
+                                              "connection", "ssl", "timeout", "errno"))
+                            if is_network and attempt < MAX_RETRIES - 1:
+                                q.put({"kind": "log",
+                                       "text": f"  Erreur réseau UID {uid!s} "
+                                               f"(tentative {attempt+1}/{MAX_RETRIES}) : {e}",
+                                       "tag": "muted"})
+                                time.sleep(2 ** attempt)
+                                try:
+                                    src = _reconnect_src()
+                                    dst = _reconnect_dst()
+                                    ensure_folder(dst, folder)
+                                except Exception as re_err:
+                                    q.put({"kind": "log",
+                                           "text": f"  Reconnexion impossible : {re_err}",
+                                           "tag": "error"})
+                                    break
+                            else:
+                                break  # erreur non-réseau ou dernière tentative
+
+                    if last_err is not None:
                         errors += 1
                         q.put({"kind": "log",
-                               "text": f"  ⚠ Erreur UID {uid} : {e}", "tag": "warn"})
+                               "text": f"  ⚠ UID {uid!s} abandonné après {MAX_RETRIES} tentatives : {last_err}",
+                               "tag": "warn"})
                         if errors > 50:
                             q.put({"kind": "log",
-                                   "text": "  Trop d'erreurs, dossier abandonné.", "tag": "error"})
+                                   "text": "  Trop d'erreurs consécutives, dossier abandonné.",
+                                   "tag": "error"})
                             break
+
+                    if copied % BATCH_SIZE == 0 and copied > 0:
+                        time.sleep(PAUSE_SECONDS)
 
                 if ck_key in checkpoint:
                     del checkpoint[ck_key]
@@ -1336,7 +1446,7 @@ class App(tk.Tk):
         tk.Label(win,
                  text=f"Purger {dst_label} ?",
                  bg=C_BG, fg=C_ACCENT2,
-                 font=(_SANS, _fs(11), "bold")
+                 font=FONT_BTN
                  ).pack(pady=(20, 6))
 
         msg = (f"Tous les messages de {dst_label} seront supprimés.\n"
@@ -1345,7 +1455,7 @@ class App(tk.Tk):
         tk.Label(win,
                  text=msg,
                  bg=C_BG, fg=C_TEXT,
-                 font=(_SANS, _fs(9)),
+                 font=FONT_SMALL,
                  justify="center"
                  ).pack(pady=(0, 16))
 

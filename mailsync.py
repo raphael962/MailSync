@@ -26,7 +26,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -172,27 +172,15 @@ def connect(config):
     return conn
 
 def parse_folder_names(raw_list):
-    """
-    Parse les réponses LIST de l'IMAP, qui peuvent prendre plusieurs formes :
-      - (\\HasNoChildren) "/" "Nom avec espaces"
-      - (\\HasNoChildren) "/" Nomsimple
-      - (\\HasNoChildren) NIL Nomsimple
-      - (\\HasNoChildren) "/" INBOX
-    On extrait uniquement la dernière composante (le nom, guillemets ou non).
-    """
     names = []
     for f in raw_list:
         if f is None:
             continue
         decoded = f.decode("utf-8", errors="replace").strip()
-        # Format : (...attributs...) "séparateur" "Nom" ou Nom
-        # On cherche d'abord un nom entre guillemets en fin de ligne
         m = re.search(r'"([^"]+)"\s*$', decoded)
         if m:
             name = m.group(1).strip()
         else:
-            # Nom sans guillemets en fin de ligne (après le séparateur)
-            # Exemples : ") NIL INBOX"  ou  ") \"/\" HMI"
             parts = decoded.rsplit(" ", 1)
             name = parts[-1].strip().strip('"')
         if name and name not in ("NIL", ""):
@@ -525,6 +513,14 @@ class App(tk.Tk):
         self.lbl_subtitle = tk.Label(header, text="",
                  font=FONT_SMALL, bg=C_BG, fg=C_MUTED)
         self.lbl_subtitle.pack(side="left", padx=16)
+        self.btn_update_title = tk.Button(
+            header, text="🔄",
+            command=self._check_update_manual,
+            bg=C_BG, fg=C_MUTED, font=(_SANS, 14),
+            relief="flat", cursor="hand2",
+            bd=0, padx=8, pady=0,
+            activebackground=C_BG, activeforeground=C_TEXT)
+        self.btn_update_title.pack(side="right")
 
         # Notebook (onglets)
         style = ttk.Style(self)
@@ -681,10 +677,6 @@ class App(tk.Tk):
                                    self._confirm_purge, color=C_ACCENT2)
         self.btn_purge.pack(side="right")
 
-        self.btn_update = self._btn(fr_actions, "🔄 Mise à jour",
-                                    self._check_update_manual, color=C_PANEL)
-        self.btn_update.pack(side="right", padx=(0, 8))
-
         # Double panneau source / destination
         fr_tables = tk.Frame(parent, bg=C_BG)
         fr_tables.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
@@ -792,22 +784,14 @@ class App(tk.Tk):
     # ── Widgets utilitaires ───────────────────────────────────────────────────
 
     def _btn(self, parent, text, command, color=C_BTN_BG):
-        # Couleurs claires = texte foncé ; couleurs foncées/vives = texte blanc
-        light_colors = (C_WARN, C_ACCENT, C_SUCCESS)
-        dark_text_colors = (C_PANEL,)
-        if color in light_colors:
-            fg = C_BG      # texte foncé sur fond clair
-        elif color == C_ACCENT2:
-            fg = "#ffffff"  # texte blanc sur rouge
-        elif color == C_BTN_BG:
-            fg = "#ffffff"
-        else:
-            fg = C_TEXT
+        light_bg = {C_WARN, C_ACCENT, C_SUCCESS}
+        fg = "#1a1a1a" if color in light_bg else "#ffffff"
         b = tk.Button(parent, text=text, command=command,
                       bg=color, fg=fg, font=FONT_BTN,
                       relief="flat", cursor="hand2",
                       padx=14, pady=6, bd=0,
-                      activebackground=color, activeforeground=fg)
+                      activebackground=color, activeforeground=fg,
+                      disabledforeground="#888888")
         return b
 
     def _tag_colors(self, widget):
@@ -1039,7 +1023,7 @@ class App(tk.Tk):
         self.tree_dst.delete(*self.tree_dst.get_children())
         self.folder_rows = []
         for i, (name, src, dst, delta) in enumerate(rows):
-            checked = delta > 0
+            checked = False
             var     = tk.BooleanVar(value=checked)
             sel     = "☑" if checked else "☐"
             base_tag = "has_delta" if delta > 0 else "done"
@@ -1385,13 +1369,13 @@ class App(tk.Tk):
     # ── Purge ─────────────────────────────────────────────────────────────────
 
     def _check_update_manual(self):
-        self.btn_update.config(state="disabled", text="Recherche...")
+        self.btn_update_title.config(state="disabled", text="Recherche...")
         def _run():
             def _on_found(version, url, name):
                 self.after(0, lambda: download_and_install(self, version, url, name))
             def _on_not_found():
                 self.after(0, lambda: [
-                    self.btn_update.config(state="normal", text="🔄 Mise à jour"),
+                    self.btn_update_title.config(state="normal", text="🔄 Mise à jour"),
                     messagebox.showinfo("Mise à jour", f"Vous avez déjà la dernière version (v{VERSION}).")
                 ])
             try:
@@ -1421,7 +1405,7 @@ class App(tk.Tk):
                     _on_not_found()
             except Exception:
                 self.after(0, lambda: [
-                    self.btn_update.config(state="normal", text="🔄 Mise à jour"),
+                    self.btn_update_title.config(state="normal", text="🔄 Mise à jour"),
                     messagebox.showwarning("Mise à jour", "Impossible de vérifier les mises à jour.")
                 ])
         threading.Thread(target=_run, daemon=True).start()

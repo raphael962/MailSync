@@ -27,7 +27,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.2.3"
+VERSION = "1.2.4"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -45,7 +45,7 @@ MAX_RETRIES      = 5      # tentatives de reconnexion par message
 _USER_DIR        = os.path.join(os.path.expanduser("~"), "MailSync")
 os.makedirs(_USER_DIR, exist_ok=True)
 CHECKPOINT_FILE  = os.path.join(_USER_DIR, "migration_checkpoint.json")
-LOG_FILE         = os.path.join(_USER_DIR, "migration_log.txt")
+LOG_FILE         = os.path.join(_USER_DIR, "mailsync.log")
 CONFIG_FILE      = os.path.join(_USER_DIR, "migration_profiles.json")
 
 # ─── Palette de couleurs ──────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ log = logging.getLogger(__name__)
 
 def _init_logging():
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format="%(asctime)s  %(levelname)-8s  %(message)s",
         datefmt="%H:%M:%S",
         handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8")],
@@ -555,6 +555,14 @@ class App(tk.Tk):
             bd=0, padx=8, pady=0,
             activebackground=C_BG, activeforeground=C_TEXT)
         self.btn_update_title.pack(side="right")
+        self.btn_open_log = tk.Button(
+            header, text="📋",
+            command=self._open_log_file,
+            bg=C_BG, fg=C_MUTED, font=(_SANS, 14),
+            relief="flat", cursor="hand2",
+            bd=0, padx=8, pady=0,
+            activebackground=C_BG, activeforeground=C_TEXT)
+        self.btn_open_log.pack(side="right", padx=(0, 4))
 
         # Notebook (onglets)
         style = ttk.Style(self)
@@ -1452,6 +1460,21 @@ class App(tk.Tk):
                     messagebox.showwarning("Mise à jour", "Impossible de vérifier les mises à jour.")
                 ])
         threading.Thread(target=_run, daemon=True).start()
+
+    def _open_log_file(self):
+        log_path = os.path.join(os.path.expanduser("~"), "MailSync", "mailsync.log")
+        if not os.path.exists(log_path):
+            tk.messagebox.showinfo("Log", "Aucun fichier de log trouvé.\n" + log_path)
+            return
+        if _OS == "Darwin":
+            import subprocess
+            subprocess.Popen(["open", log_path])
+        elif _OS == "Windows":
+            import subprocess
+            subprocess.Popen(["notepad.exe", log_path])
+        else:
+            import subprocess
+            subprocess.Popen(["xdg-open", log_path])
 
     def _confirm_purge(self):
         dst_label = self.dst_host.get().strip() or "Destination"

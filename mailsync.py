@@ -27,7 +27,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.2.9"
+VERSION = "1.2.10"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -251,10 +251,6 @@ def list_folders(conn):
     log.debug(f"Total dossiers après balayage alphabétique : {len(folders)}")
     log.debug(f"Dossiers bruts reçus ({len(folders)}) : {folders}")
     names   = parse_folder_names(folders)
-    # Supprimer les alias INBOX/xxx qui dupliquent les dossiers racine
-    racine = {n for n in names if not n.startswith("INBOX/")}
-    names = [n for n in names if not n.startswith("INBOX/")
-             or n[6:] not in racine]
     ordered = ["INBOX"] + [n for n in names if n.upper() != "INBOX"]
     result  = []
     for name in ordered:

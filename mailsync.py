@@ -27,7 +27,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.2.8"
+VERSION = "1.2.9"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -225,7 +225,30 @@ def count_messages(conn, folder):
         return 0
 
 def list_folders(conn):
-    status, folders = conn.list('""', '*')
+    # Infomaniak tronque LIST à 100 résultats — on contourne en appelant
+    # par tranche alphabétique puis on déduplique.
+    all_raw = []
+    seen = set()
+
+    # Un premier appel global
+    st, raw = conn.list('""', '*')
+    if st == "OK" and raw:
+        for f in raw:
+            if f and f not in seen:
+                seen.add(f)
+                all_raw.append(f)
+
+    # Des appels par lettre pour attraper ce qui dépasse 100
+    for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        st2, raw2 = conn.list('""', f'{letter}*')
+        if st2 == "OK" and raw2:
+            for f in raw2:
+                if f and f not in seen:
+                    seen.add(f)
+                    all_raw.append(f)
+
+    folders = all_raw
+    log.debug(f"Total dossiers après balayage alphabétique : {len(folders)}")
     log.debug(f"Dossiers bruts reçus ({len(folders)}) : {folders}")
     names   = parse_folder_names(folders)
     # Supprimer les alias INBOX/xxx qui dupliquent les dossiers racine

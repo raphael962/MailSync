@@ -27,7 +27,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.2.7"
+VERSION = "1.2.8"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -226,25 +226,12 @@ def count_messages(conn, folder):
 
 def list_folders(conn):
     status, folders = conn.list('""', '*')
-    if status == "OK" and folders:
-        # Certains serveurs tronquent à 100 — on complète avec une recherche par préfixe
-        all_folders = list(folders)
-        names_found = parse_folder_names(folders)
-        # Chercher les sous-dossiers de chaque dossier parent trouvé
-        parents = set()
-        for name in names_found:
-            if '/' not in name:
-                parents.add(name)
-        for parent in parents:
-            st2, sub = conn.list(f'"{parent}"', '*')
-            if st2 == "OK" and sub:
-                for f in sub:
-                    if f not in all_folders:
-                        all_folders.append(f)
-        folders = all_folders
-    log.debug(f"Total dossiers après pagination : {len(folders)}")
     log.debug(f"Dossiers bruts reçus ({len(folders)}) : {folders}")
     names   = parse_folder_names(folders)
+    # Supprimer les alias INBOX/xxx qui dupliquent les dossiers racine
+    racine = {n for n in names if not n.startswith("INBOX/")}
+    names = [n for n in names if not n.startswith("INBOX/")
+             or n[6:] not in racine]
     ordered = ["INBOX"] + [n for n in names if n.upper() != "INBOX"]
     result  = []
     for name in ordered:

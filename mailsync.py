@@ -20,13 +20,14 @@ import json
 import queue
 import logging
 import threading
+import base64
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -171,6 +172,28 @@ def connect(config):
     conn.login(config["user"], config["password"])
     return conn
 
+def decode_imap_utf7(s):
+    """Décode les noms de dossiers IMAP en modified UTF-7 (RFC 2060)."""
+    try:
+        res = []
+        i = 0
+        while i < len(s):
+            if s[i] == '&' and i + 1 < len(s):
+                j = s.index('-', i + 1)
+                b64 = s[i+1:j]
+                if b64 == '':
+                    res.append('&')
+                else:
+                    pad = b64 + '=' * ((4 - len(b64) % 4) % 4)
+                    res.append(base64.b64decode(pad).decode('utf-16-be'))
+                i = j + 1
+            else:
+                res.append(s[i])
+                i += 1
+        return ''.join(res)
+    except Exception:
+        return s
+
 def parse_folder_names(raw_list):
     names = []
     for f in raw_list:
@@ -183,6 +206,7 @@ def parse_folder_names(raw_list):
         else:
             parts = decoded.rsplit(" ", 1)
             name = parts[-1].strip().strip('"')
+        name = decode_imap_utf7(name)
         if name and name not in ("NIL", ""):
             names.append(name)
     return names
@@ -240,9 +264,10 @@ def scan_message_ids(conn, folder, progress_cb=None):
                             if line.lower().startswith("message-id:"):
                                 mid = line.split(":", 1)[1].strip()
                                 break
-                        if mid and uid_idx < len(batch_uids):
-                            result[mid] = batch_uids[uid_idx]
-                        uid_idx += 1
+                        if uid_idx < len(batch_uids):
+                            if mid:
+                                result[mid] = batch_uids[uid_idx]
+                            uid_idx += 1
             done += len(batch_uids)
             if progress_cb:
                 progress_cb(done, total)
@@ -426,6 +451,14 @@ def download_and_install(parent, version, asset_url, asset_name):
     threading.Thread(target=_download, daemon=True).start()
 
 # ─── Application principale ───────────────────────────────────────────────────
+
+def _darken(color):
+    """Assombrit légèrement une couleur hex pour l'effet hover."""
+    r = int(color[1:3], 16)
+    g = int(color[3:5], 16)
+    b = int(color[5:7], 16)
+    factor = 0.85
+    return f"#{int(r*factor):02x}{int(g*factor):02x}{int(b*factor):02x}"
 
 class App(tk.Tk):
     def __init__(self):
@@ -786,12 +819,20 @@ class App(tk.Tk):
     def _btn(self, parent, text, command, color=C_BTN_BG):
         light_bg = {C_WARN, C_ACCENT, C_SUCCESS}
         fg = "#1a1a1a" if color in light_bg else "#ffffff"
-        b = tk.Button(parent, text=text, command=command,
-                      bg=color, fg=fg, font=FONT_BTN,
-                      relief="flat", cursor="hand2",
-                      padx=14, pady=6, bd=0,
-                      activebackground=color, activeforeground=fg,
-                      disabledforeground="#888888")
+        if _OS == "Darwin":
+            # Sur Mac, tk.Button ignore fg — on utilise un Label cliquable
+            b = tk.Label(parent, text=text, bg=color, fg=fg,
+                         font=FONT_BTN, padx=14, pady=6, cursor="hand2")
+            b.bind("<Button-1>", lambda e: command())
+            b.bind("<Enter>", lambda e: b.config(bg=_darken(color)))
+            b.bind("<Leave>", lambda e: b.config(bg=color))
+        else:
+            b = tk.Button(parent, text=text, command=command,
+                          bg=color, fg=fg, font=FONT_BTN,
+                          relief="flat", cursor="hand2",
+                          padx=14, pady=6, bd=0,
+                          activebackground=color, activeforeground=fg,
+                          disabledforeground="#888888")
         return b
 
     def _tag_colors(self, widget):

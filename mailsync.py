@@ -27,7 +27,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.2.4"
+VERSION = "1.2.5"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -226,7 +226,7 @@ def count_messages(conn, folder):
 
 def list_folders(conn):
     status, folders = conn.list()
-    log.debug(f"Dossiers bruts reçus ({len(folders)}) : {folders[:10]}")
+    log.debug(f"Dossiers bruts reçus ({len(folders)}) : {folders}")
     names   = parse_folder_names(folders)
     ordered = ["INBOX"] + [n for n in names if n.upper() != "INBOX"]
     result  = []
@@ -1070,6 +1070,7 @@ class App(tk.Tk):
     # ── Tableau ───────────────────────────────────────────────────────────────
 
     def _populate_table(self, rows):
+        log.debug(f"_populate_table : {len(rows)} dossier(s) reçus : {[r[0] for r in rows]}")
         self.tree.delete(*self.tree.get_children())
         self.tree_dst.delete(*self.tree_dst.get_children())
         self.folder_rows = []

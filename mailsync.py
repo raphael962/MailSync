@@ -27,7 +27,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.2.2"
+VERSION = "1.2.3"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -226,6 +226,7 @@ def count_messages(conn, folder):
 
 def list_folders(conn):
     status, folders = conn.list()
+    log.debug(f"Dossiers bruts reçus ({len(folders)}) : {folders[:10]}")
     names   = parse_folder_names(folders)
     ordered = ["INBOX"] + [n for n in names if n.upper() != "INBOX"]
     result  = []
@@ -568,7 +569,8 @@ class App(tk.Tk):
                   foreground=[("selected", C_TEXT)])
 
         # Barre de version en bas (doit être packée AVANT le notebook)
-        tk.Label(self, text=f"v{VERSION}",
+        _os_label = {"Darwin": "Mac", "Windows": "Windows"}.get(_OS, "Linux")
+        tk.Label(self, text=f"{_os_label}  v{VERSION}",
                  bg=C_BG, fg=C_MUTED,
                  font=FONT_SMALL
                  ).pack(side="bottom", anchor="e", padx=12, pady=3)

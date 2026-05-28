@@ -27,7 +27,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.2.10"
+VERSION = "1.2.11"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -509,6 +509,7 @@ class App(tk.Tk):
             scale = max(1.0, min(scale, 3.0))  # garde entre 1× et 3×
         except Exception:
             scale = 1.0
+        self.scale = scale
 
         global FONT_TITLE, FONT_LABEL, FONT_SMALL, FONT_MONO, FONT_BTN, FONT_VER
         _f = _make_fonts(scale)
@@ -518,6 +519,7 @@ class App(tk.Tk):
         FONT_MONO  = _f["FONT_MONO"]
         FONT_BTN   = _f["FONT_BTN"]
         FONT_VER   = _f["FONT_VER"]
+        self.font_ui = (_SANS, round(14 * scale))
         # Icône de la fenêtre tkinter
         try:
             import sys as _sys
@@ -570,22 +572,24 @@ class App(tk.Tk):
         self.lbl_subtitle = tk.Label(header, text="",
                  font=FONT_SMALL, bg=C_BG, fg=C_MUTED)
         self.lbl_subtitle.pack(side="left", padx=16)
-        self.btn_update_title = tk.Button(
-            header, text="🔄",
-            command=self._check_update_manual,
-            bg=C_BG, fg=C_MUTED, font=(_SANS, 14),
-            relief="flat", cursor="hand2",
-            bd=0, padx=8, pady=0,
-            activebackground=C_BG, activeforeground=C_TEXT)
-        self.btn_update_title.pack(side="right")
-        self.btn_open_log = tk.Button(
-            header, text="📋",
-            command=self._open_log_file,
-            bg=C_BG, fg=C_MUTED, font=(_SANS, 14),
-            relief="flat", cursor="hand2",
-            bd=0, padx=8, pady=0,
-            activebackground=C_BG, activeforeground=C_TEXT)
-        self.btn_open_log.pack(side="right", padx=(0, 4))
+        sz = round(32 * self.scale)
+        self.cvs_update = tk.Canvas(header, width=sz, height=sz,
+                                    bg=C_BG, highlightthickness=0, bd=0,
+                                    cursor="hand2")
+        self.cvs_update.pack(side="right", padx=(0, 6))
+        self._draw_update_btn()
+        self.cvs_update.bind("<Enter>",    lambda e: self._draw_update_btn(hover=True))
+        self.cvs_update.bind("<Leave>",    lambda e: self._draw_update_btn())
+        self.cvs_update.bind("<Button-1>", lambda e: self._check_update_manual())
+
+        self.cvs_stop = tk.Canvas(header, width=sz, height=sz,
+                                  bg=C_BG, highlightthickness=0, bd=0,
+                                  cursor="hand2")
+        self.cvs_stop.pack(side="right", padx=(0, 6))
+        self._draw_stop_btn()
+        self.cvs_stop.bind("<Enter>",    lambda e: self._draw_stop_btn(hover=True))
+        self.cvs_stop.bind("<Leave>",    lambda e: self._draw_stop_btn())
+        self.cvs_stop.bind("<Button-1>", lambda e: self._open_log_file())
 
         # Notebook (onglets)
         style = ttk.Style(self)
@@ -867,6 +871,30 @@ class App(tk.Tk):
                           activebackground=color, activeforeground=fg,
                           disabledforeground="#888888")
         return b
+
+    def _draw_stop_btn(self, hover=False):
+        c = self.cvs_stop
+        c.delete("all")
+        sz = int(c["width"])
+        color = "#cc2f3a" if hover else "#ff414d"
+        pad = max(4, round(6 * self.scale))
+        c.create_rectangle(pad, pad, sz - pad, sz - pad, fill=color, outline="")
+        s = max(3, round(5 * self.scale))
+        cx, cy = sz // 2, sz // 2
+        c.create_rectangle(cx - s, cy - s, cx + s, cy + s, fill="white", outline="")
+
+    def _draw_update_btn(self, hover=False):
+        c = self.cvs_update
+        c.delete("all")
+        sz = int(c["width"])
+        if getattr(self, '_update_busy', False):
+            fg = C_MUTED
+        elif hover:
+            fg = "#48b8c0"
+        else:
+            fg = "#406d96"
+        c.create_text(sz // 2, sz // 2, text="↻", fill=fg,
+                      font=self.font_ui, anchor="center")
 
     def _tag_colors(self, widget):
         widget.tag_config("info",    foreground=C_TEXT)
@@ -1444,13 +1472,15 @@ class App(tk.Tk):
     # ── Purge ─────────────────────────────────────────────────────────────────
 
     def _check_update_manual(self):
-        self.btn_update_title.config(state="disabled", text="Recherche...")
+        self._update_busy = True
+        self._draw_update_btn()
         def _run():
             def _on_found(version, url, name):
                 self.after(0, lambda: download_and_install(self, version, url, name))
             def _on_not_found():
                 self.after(0, lambda: [
-                    self.btn_update_title.config(state="normal", text="🔄 Mise à jour"),
+                    setattr(self, '_update_busy', False),
+                    self._draw_update_btn(),
                     messagebox.showinfo("Mise à jour", f"Vous avez déjà la dernière version (v{VERSION}).")
                 ])
             try:
@@ -1480,7 +1510,8 @@ class App(tk.Tk):
                     _on_not_found()
             except Exception:
                 self.after(0, lambda: [
-                    self.btn_update_title.config(state="normal", text="🔄 Mise à jour"),
+                    setattr(self, '_update_busy', False),
+                    self._draw_update_btn(),
                     messagebox.showwarning("Mise à jour", "Impossible de vérifier les mises à jour.")
                 ])
         threading.Thread(target=_run, daemon=True).start()

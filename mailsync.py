@@ -27,7 +27,7 @@ from datetime import datetime
 
 # ─── Configuration par défaut ─────────────────────────────────────────────────
 
-VERSION = "1.2.11"
+VERSION = "1.2.12"
 GITHUB_REPO = "raphael962/MailSync"
 
 DEFAULT_SOURCE = {"host": "", "port": "993", "user": "", "password": ""}
@@ -170,6 +170,7 @@ def connect(config):
     ctx.verify_mode = ssl.CERT_NONE
     conn = imaplib.IMAP4_SSL(config["host"], int(config["port"]), ssl_context=ctx)
     conn.login(config["user"], config["password"])
+    conn.socket().settimeout(300)
     return conn
 
 def decode_imap_utf7(s):
@@ -216,6 +217,16 @@ def ensure_folder(dst_conn, folder_name):
         dst_conn.create(f'"{folder_name}"')
     except Exception:
         pass
+
+def strip_inbox_prefix(folder):
+    """Supprime le préfixe INBOX/ ou INBOX. des noms de dossiers pour la destination.
+    INBOX lui-même reste INBOX."""
+    if folder.upper() == "INBOX":
+        return "INBOX"
+    for prefix in ("INBOX/", "INBOX."):
+        if folder.startswith(prefix):
+            return folder[len(prefix):]
+    return folder
 
 def count_messages(conn, folder):
     try:
@@ -747,6 +758,10 @@ class App(tk.Tk):
                                    self._confirm_purge, color=C_ACCENT2)
         self.btn_purge.pack(side="right")
 
+        self.btn_clear_ck = self._btn(fr_actions, "Réinitialiser le cache",
+                                      self._confirm_clear_checkpoint, color=C_PANEL)
+        self.btn_clear_ck.pack(side="right", padx=(0, 8))
+
         # Double panneau source / destination
         fr_tables = tk.Frame(parent, bg=C_BG)
         fr_tables.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
@@ -944,7 +959,12 @@ class App(tk.Tk):
                 elif kind == "progress":
                     val = item.get("value", 0)
                     self.progress_var.set(val)
-                    self.progress_lbl.config(text=item.get("label", ""))
+                    label = item.get("label", "")
+                    if self.running and hasattr(self, '_migration_start'):
+                        elapsed = int(time.time() - self._migration_start)
+                        h, m, s = elapsed // 3600, (elapsed % 3600) // 60, elapsed % 60
+                        label = f"{label} · {h:02d}:{m:02d}:{s:02d}"
+                    self.progress_lbl.config(text=label)
 
                 elif kind == "folders_ready":
                     self._populate_table(item["rows"])
@@ -1252,8 +1272,20 @@ class App(tk.Tk):
         self.btn_migrate.config(state="disabled", text="Migration en cours...")
         self.btn_analyse.config(state="disabled")
         self.btn_purge.config(state="disabled")
+        self._migration_start = time.time()
+        self._tick_elapsed()
         threading.Thread(target=self._migration_thread,
                          args=(selected,), daemon=True).start()
+
+    def _tick_elapsed(self):
+        if not self.running:
+            return
+        elapsed = int(time.time() - self._migration_start)
+        h, m, s = elapsed // 3600, (elapsed % 3600) // 60, elapsed % 60
+        current_text = self.progress_lbl.cget("text")
+        base = current_text.split(" · ")[0] if " · " in current_text else current_text
+        self.progress_lbl.config(text=f"{base} · {h:02d}:{m:02d}:{s:02d}")
+        self.after(1000, self._tick_elapsed)
 
     def _migration_thread(self, folders):
         q          = self.msg_queue
@@ -1277,6 +1309,9 @@ class App(tk.Tk):
 
         for fi, folder in enumerate(folders):
             q.put({"kind": "log", "text": f"\nDossier : {folder}", "tag": "info"})
+            dst_folder = strip_inbox_prefix(folder)
+            if dst_folder != folder:
+                q.put({"kind": "log", "text": f"  Destination : {dst_folder} (source : {folder})", "tag": "muted"})
             q.put({"kind": "progress",
                    "value": int(fi / n_folders * 100),
                    "label": f"Dossier {fi+1}/{n_folders}"})
@@ -1297,7 +1332,7 @@ class App(tk.Tk):
                     continue
 
                 # Scan destination
-                ck_key     = f"dst_msgids__{folder}"
+                ck_key     = f"dst_msgids__{dst_folder}"
                 cached_dst = set(checkpoint.get(ck_key, []))
                 if cached_dst:
                     dst_ids = cached_dst
@@ -1306,8 +1341,8 @@ class App(tk.Tk):
                            "tag": "muted"})
                 else:
                     q.put({"kind": "log", "text": "  Scan destination...", "tag": "muted"})
-                    ensure_folder(dst, folder)
-                    dst_map = scan_message_ids(dst, folder)
+                    ensure_folder(dst, dst_folder)
+                    dst_map = scan_message_ids(dst, dst_folder)
                     dst_ids = set(dst_map.keys())
                     q.put({"kind": "log",
                            "text": f"  {len(dst_ids)} messages sur le serveur destination.", "tag": "info"})
@@ -1333,7 +1368,7 @@ class App(tk.Tk):
                                    "delta": 0, "checked": False})
                     continue
 
-                ensure_folder(dst, folder)
+                ensure_folder(dst, dst_folder)
                 pending = list(to_copy.values())
                 copied  = 0
                 errors  = 0
@@ -1372,7 +1407,7 @@ class App(tk.Tk):
                             raw_email, internaldate = fetch_message_uid(src, uid)
                             if raw_email is None:
                                 raise Exception("Corps introuvable")
-                            dst.append(f'"{folder}"', None, internaldate, raw_email)
+                            dst.append(f'"{dst_folder}"', None, internaldate, raw_email)
                             copied += 1
                             last_err = None
                             break  # succès
@@ -1391,7 +1426,7 @@ class App(tk.Tk):
                                 try:
                                     src = _reconnect_src()
                                     dst = _reconnect_dst()
-                                    ensure_folder(dst, folder)
+                                    ensure_folder(dst, dst_folder)
                                 except Exception as re_err:
                                     q.put({"kind": "log",
                                            "text": f"  Reconnexion impossible : {re_err}",
@@ -1412,6 +1447,9 @@ class App(tk.Tk):
                             break
 
                     if copied % BATCH_SIZE == 0 and copied > 0:
+                        q.put({"kind": "log",
+                               "text": f"  {copied}/{len(pending)} copiés...",
+                               "tag": "muted"})
                         time.sleep(PAUSE_SECONDS)
 
                 if ck_key in checkpoint:
@@ -1530,6 +1568,28 @@ class App(tk.Tk):
         else:
             import subprocess
             subprocess.Popen(["xdg-open", log_path])
+
+    def _confirm_clear_checkpoint(self):
+        if not os.path.exists(CHECKPOINT_FILE):
+            messagebox.showinfo("Cache vide",
+                                "Aucun fichier de cache à supprimer.")
+            return
+        ok = messagebox.askyesno(
+            "Réinitialiser le cache",
+            "Supprimer le fichier de cache (checkpoint) ?\n\n"
+            "Cela forcera un scan complet de la destination\n"
+            "à la prochaine migration.\n\n"
+            "Les emails déjà copiés ne seront pas dupliqués\n"
+            "(la déduplication par Message-ID reste active).",
+            icon="warning")
+        if ok:
+            try:
+                os.remove(CHECKPOINT_FILE)
+                self._append_log(self.mig_log,
+                                 "Cache supprimé (migration_checkpoint.json).",
+                                 "success")
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Impossible de supprimer le cache :\n{e}")
 
     def _confirm_purge(self):
         dst_label = self.dst_host.get().strip() or "Destination"

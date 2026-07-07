@@ -615,11 +615,22 @@ class App(tk.Tk):
                   foreground=[("selected", C_TEXT)])
 
         # Barre de version en bas (doit être packée AVANT le notebook)
+        fr_bottom = tk.Frame(self, bg=C_BG)
+        fr_bottom.pack(side="bottom", fill="x")
+
         _os_label = {"Darwin": "Mac", "Windows": "Windows"}.get(_OS, "Linux")
-        tk.Label(self, text=f"{_os_label}  v{VERSION}",
+        tk.Label(fr_bottom, text=f"{_os_label}  v{VERSION}",
                  bg=C_BG, fg=C_MUTED,
                  font=FONT_SMALL
-                 ).pack(side="bottom", anchor="e", padx=12, pady=3)
+                 ).pack(side="right", padx=12, pady=3)
+
+        self.lbl_clear_ck = tk.Label(fr_bottom, text="Réinitialiser le cache",
+                                     bg=C_BG, fg=C_MUTED,
+                                     font=FONT_SMALL, cursor="hand2")
+        self.lbl_clear_ck.pack(side="right", padx=(0, 4), pady=3)
+        self.lbl_clear_ck.bind("<Enter>", lambda e: self.lbl_clear_ck.config(fg=C_ACCENT))
+        self.lbl_clear_ck.bind("<Leave>", lambda e: self.lbl_clear_ck.config(fg=C_MUTED))
+        self.lbl_clear_ck.bind("<Button-1>", lambda e: self._confirm_clear_checkpoint())
 
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True, padx=16, pady=(12, 0))
@@ -757,10 +768,6 @@ class App(tk.Tk):
         self.btn_purge = self._btn(fr_actions, "⚠  Purger destination",
                                    self._confirm_purge, color=C_ACCENT2)
         self.btn_purge.pack(side="right")
-
-        self.btn_clear_ck = self._btn(fr_actions, "Réinitialiser le cache",
-                                      self._confirm_clear_checkpoint, color=C_PANEL)
-        self.btn_clear_ck.pack(side="right", padx=(0, 8))
 
         # Double panneau source / destination
         fr_tables = tk.Frame(parent, bg=C_BG)
